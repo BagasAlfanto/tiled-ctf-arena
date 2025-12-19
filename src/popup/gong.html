@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <style>
+      body {
+        font-family: sans-serif;
+        padding: 10px;
+      }
+      input {
+        width: 100%;
+        padding: 6px;
+        margin-bottom: 8px;
+      }
+      button {
+        width: 100%;
+        padding: 6px;
+      }
+    </style>
+  </head>
+  <body>
+    <h3>🔔 Gong</h3>
+    <input id="password" type="password" placeholder="Masukkan password" />
+    <button onclick="submit()">Bunyikan</button>
+
+    <script>
+      function submit() {
+        const pwd = document.getElementById("password").value;
+        window.parent.postMessage(
+          {
+            type: "gong",
+            password: pwd,
+          },
+          "*"
+        );
+      }
+    </script>
+  </body>
+</html>

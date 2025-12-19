@@ -1,85 +1,100 @@
 /// <reference types="@workadventure/iframe-api-typings" />
 
 import { bootstrapExtra } from "@workadventure/scripting-api-extra";
+import { ActionMessage } from "@workadventure/iframe-api-typings";
 
 console.log("Script started successfully");
 
-let currentPopup: any = undefined;
-
-// --- FUNGSI UPDATE VISUAL ---
-function updateDoorVisuals(isOpen: boolean) {
-  if (isOpen) {
-    WA.room.hideLayer("DoorClosed");
-    WA.room.showLayer("DoorOpen");
-  } else {
-    WA.room.showLayer("DoorClosed");
-    WA.room.hideLayer("DoorOpen");
-  }
-}
-
-// --- LOGIKA UTAMA ---
+// Waiting for the API to be ready
 WA.onInit()
-  .then(() => {
+  .then(async () => {
     console.log("Scripting API ready");
 
-    const isUnlocked = WA.state.loadVariable("room_door_unlocked") as boolean;
-    updateDoorVisuals(isUnlocked === true);
-
-    WA.room.area.onEnter("zone_password").subscribe(() => {
-      const currentStatus = WA.state.loadVariable(
-        "room_door_unlocked"
-      ) as boolean;
-
-      if (currentStatus) {
-        // Hapus argument kedua 'System' jika error juga muncul di sini
-        WA.chat.sendChatMessage("Pintu sudah terbuka.");
-        return;
-      }
-
-      // --- PERBAIKAN DI SINI ---
-      // Kita gunakan @ts-ignore untuk melewati error "Expected 1 arguments"
-      // karena kita BUTUH 'allowApi: true' agar password berfungsi.
-
-      // @ts-ignore
-      currentPopup = WA.ui.website.open("password.html", {
-        position: {
-          vertical: "middle",
-          horizontal: "middle",
-        },
-        size: {
-          width: "400px",
-          height: "300px",
-        },
-        allowApi: true,
-      });
-    });
-
-    WA.room.area.onLeave("zone_password").subscribe(() => {
-      if (currentPopup) {
-        currentPopup.close();
-        currentPopup = undefined;
-      }
-    });
-
-    WA.state.onVariableChange("room_door_unlocked").subscribe((value) => {
-      updateDoorVisuals(value === true);
-
-      if (value === true) {
-        if (currentPopup) {
-          currentPopup.close();
-          currentPopup = undefined;
-        }
-        // Hapus 'System' agar lebih aman dari error tipe
-        WA.chat.sendChatMessage("Password Diterima. Pintu Terbuka!");
-      }
-    });
-
+    // The line below bootstraps the Scripting API Extra library that adds a number of advanced properties/features to WorkAdventure
     bootstrapExtra()
       .then(() => {
         console.log("Scripting API Extra ready");
       })
       .catch((e) => console.error(e));
+
+    await WA.players.configureTracking({
+      players: true,
+      movement: false,
+    });
+
+    // The doorState variable contains the state of the door.
+    // True: the door is open
+    // False: the door is closed
+    // We listen to variable change to display the correct door image.
+    WA.state.onVariableChange("doorState").subscribe((doorState) => {
+      displayDoor(doorState);
+    });
+
+    displayDoor(WA.state.doorState);
+
+    let openCloseMessage: ActionMessage | undefined;
+
+    // When someone walks on the doorstep (inside the room), we display a message to explain how to open or close the door
+    WA.room.onEnterLayer("doorsteps/inside_doorstep").subscribe(() => {
+      openCloseMessage = WA.ui.displayActionMessage({
+        message: "Press 'space' to open/close the door",
+        callback: () => {
+          WA.state.doorState = !WA.state.doorState;
+        },
+      });
+    });
+
+    // When someone leaves the doorstep (inside the room), we remove the message
+    WA.room.onLeaveLayer("doorsteps/inside_doorstep").subscribe(() => {
+      if (openCloseMessage !== undefined) {
+        openCloseMessage.remove();
+      }
+    });
+
+    WA.room.onEnterLayer("meetingRoom").subscribe(() => {
+      WA.player.state.saveVariable("currentRoom", "meetingRoom", {
+        public: true,
+        persist: false,
+      });
+    });
+
+    WA.room.onLeaveLayer("meetingRoom").subscribe(() => {
+      WA.player.state.saveVariable("currentRoom", undefined, {
+        public: true,
+        persist: false,
+      });
+    });
+
+    // When someone walks on the doorstep (outside the room), we check if the door is closed
+    // If the door is closed, and if no one is inside (because no player has the "currentRoom" variable set to "meetingRoom"),
+    // we open the door automatically.
+    WA.room.onEnterLayer("doorsteps/outside_doorstep").subscribe(() => {
+      if (WA.state.doorState === false) {
+        const players = WA.players.list();
+        for (const player of players) {
+          if (player.state.currentRoom === "meetingRoom") {
+            // Someone is in the room
+            return;
+          }
+        }
+        // If no one is in the room and if the door is closed, we open it automatically
+        WA.state.doorState = true;
+      }
+    });
   })
   .catch((e) => console.error(e));
+
+/**
+ * Display the correct door image depending on the state of the door.
+ */
+function displayDoor(state: unknown) {
+  if (state === true) {
+    WA.room.showLayer("door/door_opened");
+    WA.room.hideLayer("door/door_closed");
+  } else {
+    WA.room.hideLayer("door/door_opened");
+    WA.room.showLayer("door/door_closed");
+  }
+}
 
 export {};
